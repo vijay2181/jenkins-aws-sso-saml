@@ -1,0 +1,584 @@
+# JENKINS AWS SSO SAML
+## ENTERPRISE SAML 2.0 SINGLE SIGN-ON (SSO)!
+
+```
+[Developer Types URL]
+       │
+       ▼
+[Jenkins Controller] ──────(SAML AuthnRequest)─────► [AWS IAM Identity Center]
+                                                             │
+                                                      (Validates Email + Password)
+                                                             │
+                                                      (Enforces Hardware MFA App)
+                                                             │
+[Jenkins Dashboard]  ◄─────(Signed SAML 2.0 Assertion)───────┘
+
+  ✅ Logged in as Admin
+  ✅ Zero passwords stored in Jenkins
+  ✅ Centralized enterprise identity
+```
+
+---
+
+## MANUAL STEPS:
+
+- [👉 Step 1] Create the Corporate Groups in AWS IAM Identity Center (Console)
+- [   Step 2] Create the User & Assign to Group
+- [   Step 3] Create Custom SAML 2.0 Application in AWS Identity Center
+- [   Step 4] Configure Application Properties & Attribute Mappings
+- [   Step 5] Download the IdP Metadata XML file from AWS
+- [   Step 6] Spin up Jenkins on your test machine / server
+- [   Step 7] Install SAML & Role-Strategy Plugins in Jenkins
+- [   Step 8] Configure SAML Realm & Role Matrix in Jenkins UI
+- [   Step 9] Test the Live SSO Login in an Incognito Window!
+
+---
+
+## 🚀 STEP 1: Create Corporate Groups in AWS
+
+1. Log into your AWS Management Console.
+2. In the top search bar, search for **IAM Identity Center** (formerly AWS SSO) and open it. (Make sure you are in your active region, e.g., `us-east-1` or `eu-west-1`).
+3. On the left sidebar menu, click on **Groups**.
+4. Click the orange **Create group** button.
+5. Create this first group:
+   - **Group name:** `AWS-DevOps-Admins`
+   - **Description:** `Full Jenkins Administrator Access`
+   - don't add any permissions
+   - Click **Create group**.
+6. Repeat and create the second group:
+   - **Group name:** `AWS-Developers`
+   - **Description:** `Jenkins Pipeline Build and Read Access`
+   - Click **Create group**.
+
+> - Leave AWS AWS-level permissions blank / empty.
+> - Just create the group name as `AWS-DevOps-Admins`.
+
+---
+
+### 💡 The Big Difference: AWS Permissions vs. SAML Groups
+
+- **AWS IAM Permission Sets / Policies:** These control what someone can do inside AWS (e.g., EC2, S3, RDS).
+- **Identity Center Groups (For SAML):** These groups act purely as membership labels / name tags.
+
+When you log into Jenkins:
+1. AWS looks at your account and sees: "Vijay is in the group named `AWS-DevOps-Admins`".
+2. AWS stamps that text label (`AWS-DevOps-Admins`) inside the SAML digital voucher.
+3. Jenkins reads that text label and Jenkins itself decides what permissions to give you (e.g., admin / `Overall/Administer`).
+
+---
+
+## 🚀 STEP 2: Create a User & Assign to Group in AWS
+
+Now we need a corporate identity in AWS IAM Identity Center to log in with.
+
+**Actions:**
+
+1. In the AWS IAM Identity Center console, on the left sidebar, click on **Users**.
+2. Click the orange **Add user** button.
+3. Fill in the user details:
+   - **Username:** your preferred username (e.g. `vijay` or your corporate email `vijay@company.com`)
+   - **Email address:** your email address (where you can receive the activation email/password)
+   - **Confirm email address:** same email
+   - **First name:** Vijay
+   - **Last name:** Kumar
+   - **Display name:** Vijay Kumar
+4. Click **Next**.
+5. Add user to groups:
+   - Check the box next to **AWS-DevOps-Admins** (this makes you a Jenkins Super Admin).
+   - (Optional: You can also check **AWS-Developers**).
+6. Click **Next** → → review the details → → click **Add user**.
+7. Check your email or set a password for this user so you can log into the AWS SSO portal later.
+
+**Why real email is needed:**
+1. **Password activation link:** AWS will send an email with a button: "Accept invitation & set password".
+2. **SAML login test:** When testing Jenkins login in the browser, you will type this real email address and password to authenticate.
+
+---
+
+```
+https://rajesh.signin.aws.amazon.com/console
+devopsvijay5@gmail.com
+Devopsvijay5@gmail.com
+```
+
+---
+
+## 🚀 STEP 3: Create the Custom SAML 2.0 Application in AWS
+
+Now we tell AWS: "I have an application called Jenkins that will trust you for logins."
+
+**Actions in AWS Console:**
+
+1. On the left sidebar of IAM Identity Center, click on **Applications**.
+
+> **Why do you need to click Enable?**
+> - IAM Identity Center is a free AWS service, but it is not active by default in an AWS account until you click **Enable**.
+> - Clicking **Enable** creates your organization's central directory (Identity Store) where your users, groups, and SAML applications live.
+> - It only takes 10–15 seconds to activate.
+
+**Why Single-Region instance?**
+1. **Simple and Free:** It is fast to provision, completely free, and standard for learning and development.
+2. **Multi-Region is only for global disaster recovery:** You only need multi-region if your company has tens of thousands of employees globally and requires cross-continent fallback across continents (e.g. Mumbai to Oregon).
+3. **Works 100% identically for SAML:** For Jenkins SAML SSO integration, Single-Region gives you everything you need (users, groups, SAML applications, and MFA).
+
+- click on **enable**
+
+> You have successfully created the organization instance of IAM Identity Center `6595a954f3f1503c`.
+
+### 1. Create the Groups:
+
+1. In the left sidebar of IAM Identity Center, click on **Groups**.
+2. Click the orange **Create group** button.
+3. **Group 1:**
+   - **Group name:** `AWS-DevOps-Admins`
+   - Click **Create group**.
+4. **Group 2:**
+   - **Group name:** `AWS-Developers`
+   - Click **Create group**.
+
+---
+
+> Use a real personal or work email address that you have access to right now (like your Gmail, Outlook, or work inbox) — **NOT** a fake email like `vijay@company.com`.
+
+**Why does the email need to be real?**
+When you click **Add user**, AWS IAM Identity Center automatically sends a "Welcome / Invitation" verification email with a link to:
+1. Set your AWS SSO Password.
+2. Set up your MFA (Multi-Factor Authentication / Authenticator App).
+
+If you use a fake address (e.g. `@company.com` where you don't receive emails), you won't get that verification link to set your password!
+
+---
+
+### 2. Create Your User:
+
+1. In the left sidebar, click on **Users**.
+2. Click **Add user**.
+3. Fill in:
+   - **Username:** `devopsvijay5@gmail.com`
+   - **Password:** "Send an email to this user with password setup instructions" (checked)
+   - **Email:** `devopsvijay5@gmail.com`
+   - **First/Last name:** `devops vijay`
+4. Click **Next**.
+5. On the **Add user to groups** screen:
+   - Check the box for **AWS-DevOps-Admins**.
+6. Click **Next** → → click **Add user**.
+
+- login to gmail for accept invitation, and password setup
+
+```
+Hello devopsvijay5@gmail.com,
+Your administrator for AWS Account #883377550669 has invited you to AWS IAM Identity Center. Accepting this invitation activates your user account in IAM Identity Center so that you can access assigned AWS resources. Choose the link below to accept this invitation.
+
+devopsvijay5@gmail.com
+Devopsvijay5@gmail.com
+```
+
+---
+
+## 🚀 STEP 3: Create the Jenkins SAML 2.0 Application in AWS
+
+**Actions in AWS Console:**
+
+1. In IAM Identity Center, look at the left sidebar menu and click on **Applications**.
+2. Click the orange **Add application** button on the top right.
+3. On the setup screen, select: 👉 **"I have an application I want to set up"**
+4. Under **Application type**, select: 👉 **SAML 2.0**
+5. Click **Next**.
+6. Under **Display details:**
+   - **Display name:** `Jenkins-CI-CD`
+   - **Description:** `Production Enterprise Jenkins Controller`
+
+---
+
+## 🚀 STEP 4: Configure Application Metadata & Download the IdP Certificate
+
+Scroll down on that same page to **IAM Identity Center metadata** and **Application metadata:**
+
+### 1. Download the AWS SAML Metadata File (Important!):
+
+```
+IAM Identity Center SAML metadata file
+Download
+https://portal.sso.ap-south-1.amazonaws.com/saml/metadata/OD
+
+IAM Identity Center sign-in URL
+https://portal.sso.ap-south-1.amazonaws.com/saml/assertion/OD
+
+IAM Identity Center sign-out URL
+https://portal.sso.ap-south-1.amazonaws.com/saml/logout/OD
+
+IAM Identity Center SAML issuer URL
+https://portal.sso.ap-south-1.amazonaws.com/saml/assertion/OD
+
+IAM Identity Center Certificate
+Download
+```
+
+### 2. Configure Application Metadata (Below that section)
+
+Scroll down to **Application metadata:**
+
+1. Select the radio button: **"Manually type your metadata values"**.
+2. Enter these values:
+   - **Application ACS URL:** `http://localhost:8080/securityRealm/finishLogin` (or `http://<YOUR_TEST_SERVER_IP>:8080/securityRealm/finishLogin` if using a remote VM)
+   - **Application SAML audience (Entity ID):** `http://localhost:8080/securityRealm/finishLogin` (same value)
+3. Click **Submit** (or **Save changes**).
+
+```
+Application ACS URL:      http://localhost:8080/securityRealm/finishLogin
+Application SAML audience: http://localhost:8080/securityRealm/finishLogin
+```
+
+### 3. Assign Users & Groups to the Application (Important!)
+
+Once saved:
+1. In the **Jenkins-CI-CD** application page, click the **"Assigned users and groups"** tab (or button).
+2. Click **Assign users and groups**.
+3. Click inside the search box or select the **Groups** tab/radio button.
+4. Type `AWS` or click on:
+   - `AWS-DevOps-Admins`
+   - `AWS-Developers`
+5. Select both groups so checkmarks appear next to them.
+6. Click the orange **Done** (or **Assign**) button.
+
+Once you see `AWS-DevOps-Admins` listed under **Assigned users and groups**, we will configure the Attribute Mappings next!
+
+---
+
+## 🚀 STEP 5, Final AWS Step: Attribute Mappings
+
+This is what sends your name, email, and group memberships inside the SAML token to Jenkins.
+
+**Actions in AWS Console:**
+
+1. Look at the top-right corner of the **Jenkins-CI-CD** application page.
+2. Click the **Actions** dropdown button.
+3. Select **Edit attribute mappings**.
+4. Configure these **5 exact rows** (click **Add new mapping** if you need more rows):
+
+> Attributes you map here become part of the SAML assertion that is sent to the application. You can choose which user attributes in your application map to corresponding user attributes in your connected directory.
+
+| User attribute in the application | Maps to this string value or user attribute in IAM Identity Center | Format |
+|---|---|---|
+| `Subject` | `${user:email}` | `unspecified` |
+| `username` | `${user:preferredUsername}` | `unspecified` |
+| `email` | `${user:email}` | `basic` |
+| `displayName` | `${user:name}` | `basic` |
+| `groups` | `${user:groups}` | `basic` |
+
+5. Click **Save changes**.
+
+```
+Status
+Active
+```
+
+> 👉 Once saved, your AWS configuration is 100% complete! Reply with "Attribute mappings saved" and we will spin up Jenkins next!
+
+---
+
+## JENKINS SETUP:
+
+---
+
+## 🚀 STEP 5: Launch EC2 & Run Jenkins via Docker
+
+### Part A: Launch the EC2 Instance in AWS Console
+
+1. In the AWS Console, open **EC2** → → Click **Launch instance**.
+2. **Name:** `jenkins-saml-test-server`
+3. **AMI:** Ubuntu Server 22.04 LTS (or 24.04 LTS).
+4. **Instance type:** `t2.large`
+5. **Key pair:** Select your existing key pair or create a new one.
+6. **Network settings / Security Group (Crucial!):**
+   - Allow **SSH (Port 22)** from your IP.
+   - Allow **Custom TCP (Port 8080)** from Anywhere (`0.0.0.0/0`) or your IP. (This is for the Jenkins UI).
+7. Click **Launch instance**.
+
+### Part B: Connect to EC2 and Run Jenkins in Docker
+
+Once the EC2 instance is **Running**, copy its **Public IPv4 address** (e.g. `3.85.120.45`), SSH into it, and run:
+
+```bash
+# 1. Update system & install Docker
+sudo apt-get update && sudo apt-get install -y docker.io
+sudo usermod -aG docker $USER
+
+# 2. Run Jenkins LTS in Docker (mapping port 8080)
+sudo docker run -d \
+  --name jenkins \
+  --restart always \
+  -p 8080:8080 \
+  -p 50000:50000 \
+  -v jenkins_home:/var/jenkins_home \
+  jenkins/jenkins:lts-jdk17
+
+# 3. Wait 30 seconds, then get the Initial Admin Password
+sudo docker logs jenkins 2>&1 | grep -A 2 "Please use the following password"
+```
+
+```
+root@ip-172-31-14-110:~# sudo docker logs jenkins 2>&1 | grep -A 2 "Please use the following password"
+[LF]> Please use the following password to proceed to installation:
+[LF]>
+[LF]> 5c4510850c9343568945840e96ceeb6c
+
+http://13.232.168.185:8080
+```
+
+```
+setup initial jenkins user
+user:     admin
+password: admin
+```
+
+### Part C: Update the AWS SAML App with your EC2 Public IP
+
+Now that you have your EC2 Public IP (e.g., `3.85.120.45`):
+
+1. Go back to **AWS IAM Identity Center** → → **Applications** → click on → **customer managed** tab → Click **Jenkins-CI-CD**.
+2. Download updated/new metadata file again:
+   ```
+   IAM Identity Center SAML metadata file
+   Download
+   ```
+3. Click on **Actions** → **Edit Configurations** → Look at **Application metadata** → → **Edit**.
+4. Update both URLs to your EC2 Public IP:
+   - **Application ACS URL:** `http://13.232.168.18:8080/securityRealm/finishLogin`
+   - **Application SAML audience:** `http://13.232.168.18:8080/securityRealm/finishLogin`
+5. Click **Save changes**.
+
+---
+
+## 🚀 STEP 7: Install SAML & Role-Strategy Plugins in Jenkins
+
+**Actions in Jenkins Dashboard (`http://13.232.168.18:8080`):**
+
+1. On the left sidebar, click **Manage Jenkins**.
+2. Click **Plugins** (or **Manage Plugins**).
+3. Click the **Available plugins** tab on the left.
+4. In the search box, search and check the boxes for these 2 plugins:
+   - ✅ **SAML 2.0** (plugin name: `saml`)
+   - ✅ **Role-based Authorization Strategy** (plugin name: `role-strategy`)
+5. Click **Install**.
+6. Check the box **"Restart Jenkins when installation is complete and no jobs are running"** (or let it finish installing and restart Jenkins).
+
+---
+
+## 🚀 STEP 8: Configure SAML Security Realm & Roles in Jenkins
+
+Once Jenkins restarts and you log back in as **admin:**
+
+### Part A: Configure SAML 2.0 Security Realm
+
+1. In Jenkins **Manage Jenkins** → → **Security** → → **SAML 2.0**.
+2. Under **IdP Metadata**, select **Paste XML** (or **XML Text**).
+3. Paste the entire content of `Jenkins-CI-CD_ins-659504ca7fa5416b.xml` (starting from `<?xml ...>` all the way to `</EntityDescriptor>`).
+
+```bash
+cat Jenkins-CI-CD_ins-659504ca7fa5416b.xml
+# - copy raw xml file
+# - click on validate
+```
+
+```
+* Validate IdP Metadata
+* Success
+```
+
+```
+IdP Metadata URL:
+https://portal.sso.ap-south-1.amazonaws.com/saml/metadata/OD
+```
+
+4. Fill in the remaining fields with exact below content, **remove existing ones from jenkins:**
+
+| Field Name in Jenkins UI | Exact Value to Enter | What It Does |
+|---|---|---|
+| **IdP Metadata** | (Selected URL or Pasted XML from previous step) | Provides AWS's public certificate and SSO endpoints to Jenkins. |
+| **Display Name Attribute** | `displayName` | Extracts your full name from AWS and shows it in the top-right corner of Jenkins. |
+| **Group Attribute** | `groups` | **Crucial:** Extracts AWS groups (`AWS-DevOps-Admins`, `AWS-Developers`) to map to Jenkins roles. |
+| **Maximum Authentication Lifetime** | `86400` (default) | Keeps the session valid for 24 hours before asking to re-authenticate with AWS. |
+| **Username Attribute** | `username` | Sets your Jenkins login username from the AWS username attribute. |
+| **Email Attribute** | `email` | Sets your email address in your Jenkins profile. |
+| **Username Case Conversion** | Select `Lowercase` from dropdown | Prevents duplicate accounts (e.g., `Vijay` vs `vijay`). |
+| **Data Binding Method** | Select `HTTP-POST` from dropdown | Uses secure HTTP-POST payload to deliver the SAML assertion. |
+| **Logout URL** | `https://portal.sso.ap-south-1.amazonaws.com/saml/logout/OD` | When you click "Log Out" in Jenkins, it safely signs you out of AWS SSO as well. |
+
+---
+
+### ⚙️ Next Section on the Same Page: Authorization
+
+Scroll down to **Authorization:**
+
+1. Select the dropdown button: **Role-Based Strategy**.
+2. Click the orange **Save** button at the very bottom.
+
+---
+
+### 👥 Next Step: Configure Role Assignments (Before logging out!)
+
+To ensure you don't get locked out:
+
+1. Go to **Manage Jenkins** → → **Manage and Assign Roles** (or **Security** → → **Manage and Assign Roles**).
+2. Click **Manage Roles:**
+   - Under **Global roles:**
+     - `admin` role → → Check `Overall/Administer` (gives all permissions).
+     - Add new role `developer` → → Check `Overall/Read`, `Job/Build`, `Job/Cancel`, `Job/Read`, `Job/Workspace`, `View/Read`.
+   - Click **Save**.
+3. Click **Assign Roles** tab left side top, below **Manage Roles:**
+   - Under **Global roles:**
+     - Add Group: `AWS-DevOps-Admins` → → Check `admin`
+     - Add Group: `AWS-Developers` → → Check `developer`
+     - Add User: `admin` → → Check `admin` (keeps local admin as emergency fallback)
+     - Add User: `devopsvijay5@gmail.com` → → Check `admin`
+   - Click **Save**.
+
+**Role Assignment Explanation:**
+
+1. `AWS-DevOps-Admins` → Group → `admin`: Anyone belonging to this AWS group in IAM Identity Center gets full Jenkins administrator privileges.
+2. `AWS-Developers` → Group → `developer`: Developers can build, read, and run jobs without administrative permissions.
+3. `admin` → user → `admin`: Preserves the local break-glass user.
+4. `devopsvijay5@gmail.com` → user → `admin`: Guarantees direct admin access when your email is parsed as the username.
+
+---
+
+## 🚀 STEP 9: The Moment of Truth — Live SSO Login Test!
+
+Now we test the full end-to-end SAML 2.0 flow.
+
+**Test Procedure:**
+
+1. **DO NOT close** your current Jenkins browser tab (Keep it open as your safety net).
+2. Open a brand new **Incognito / Private Window** in your browser.
+3. In the incognito window, navigate to your Jenkins URL: 👉 `http://13.232.168.185:8080`
+
+**What should happen automatically:**
+
+1. Jenkins immediately intercepts the request and redirects your browser to the **AWS IAM Identity Center Sign-In** page.
+2. Log in with your corporate AWS credentials:
+   - **Username / Email:** `devopsvijay5@gmail.com`
+   - **Password:** The password you configured in AWS Identity Center.
+   - **MFA:** Complete MFA if prompted.
+3. AWS will validate your credentials, generate the signed SAML assertion, and redirect your browser back to: `http://13.232.168.185:8080/securityRealm/finishLogin`.
+4. 🎉 You will land on the **Jenkins Dashboard**, logged in with your AWS corporate identity as an Administrator!
+
+---
+
+**What happened behind the scenes:**
+1. You typed your Jenkins URL (`http://13.232.168.185:8080`).
+2. Jenkins generated a SAML `AuthnRequest` and redirected your browser to AWS.
+3. AWS recognized your organization and immediately enforced corporate **Multi-Factor Authentication (MFA)** before allowing access to Jenkins!
+
+**What to do on this screen:**
+1. Select **Authenticator app** (or **Built-in authenticator** if using Touch ID/Fingerprint on your laptop).
+
+**Steps:**
+1. Select **Authenticator app** on the screen and click **Next**.
+2. AWS will show a **QR code**.
+3. Open **Google Authenticator** (or **Microsoft Authenticator**) on your phone.
+4. Tap the **+** (Add account) → → **Scan the QR code**.
+5. Enter the **6-digit code** shown in your app and a device name (e.g., `MyMobile`).
+6. Click **Submit / Register device**.
+
+AWS will finish registration and redirect your browser straight back into Jenkins as an authenticated user!
+
+---
+
+### ⚠️ Issue: Access Denied After MFA Sign In
+
+```
+Access Denied
+devops vijay is missing the Overall/Read permission
+```
+
+**🔍 What this means:**
+1. **Authentication (SAML 2.0) worked 100%!** AWS successfully verified your password and MFA, and sent the SAML token to Jenkins.
+2. Jenkins parsed your username as `devops vijay` (your Display Name).
+3. But in Jenkins Role Strategy, we assigned the role to `devopsvijay5@gmail.com` and `AWS-DevOps-Admins`, not the text string `devops vijay`.
+
+**🔧 The 1-Minute Fix (In your original admin window):**
+
+Go back to your original Jenkins browser tab where you are still logged in as **admin:**
+
+1. Go to **Manage Jenkins** → → **Security** (or **Manage and Assign Roles**).
+2. Click **Assign Roles:**
+   - Under **Global roles:**
+   - In the **User** → to add box, type: 👉 `devops vijay`
+   - Click **Add**.
+   - Check the box for `admin` next to `devops vijay`.
+3. Click the orange **Save** button at the bottom.
+
+---
+
+## 📊 Summary of What You Accomplished:
+
+1. **Active AWS IAM Identity Center Setup:** Created centralized enterprise directory, user pool (`devopsvijay5@gmail.com`), and groups (`AWS-DevOps-Admins`, `AWS-Developers`).
+2. **SAML 2.0 Custom Application:** Registered Jenkins in AWS with custom Assertion Consumer Service (ACS) endpoints (`http://13.232.168.185:8080/securityRealm/finishLogin`) and Entity ID.
+3. **Attribute Federation:** Mapped `Subject`, `email`, `displayName`, and `groups` inside the cryptographic SAML token.
+4. **Jenkins Security Realm:** Connected Jenkins to AWS IdP via metadata XML and established Role-Based Access Control (RBAC).
+5. **Mandatory Enterprise MFA:** Successfully enforced real-time phone Authenticator App verification before granting access.
+
+```
+login to jenkins -> redirect to aws -> login with aws creds --> mfa -> login to jenkins
+```
+
+---
+
+## Stick to SAML: SSO-SESSION-PERSISTENCE
+
+```
+MFA should go away
+Stick to SAML
+2nd time it should not ask login
+Until its expired
+Single Sign On
+
+login to jenkins -> redirect to aws -> login with aws creds -> login to jenkins ?
+```
+
+Yes! You can edit the current configuration directly in AWS IAM Identity Center to enable true **Single Sign-On session persistence** so MFA is **NOT** asked on every login.
+
+---
+
+### ⚙️ Exact Steps in AWS Console to Enable "Remember Session" / Reduce MFA Prompts
+
+1. Open the **AWS Management Console** and navigate to **IAM Identity Center**.
+2. Look at the left sidebar menu and click on **Settings** (at the bottom of the menu).
+3. Click on the **Authentication** tab → **Authentication and MFA** tab.
+4. **Disable MFA**.
+5. **Save**.
+
+---
+
+### MFA Settings — Prompt users for MFA
+
+> **Only when their sign-in context changes (context-aware)**
+> Users with a registered MFA device are only prompted when their sign-in context changes (for example, they sign in from a new device or browser, or from an unknown IP address). Users can remember devices when this mode is selected.
+
+> **Every time they sign in (always-on)**
+> Users with a registered MFA device are prompted every time they sign in.
+
+> **Never (disabled)**
+> All users sign in with their standard user name and password only. Choosing this option disables MFA.
+
+---
+
+### 🔍 Verification Against Your Requirements:
+
+| Your Requirement | Your Configured Setting | Result |
+|---|---|---|
+| "MFA should go away" | Prompt users for MFA: **Never (disabled)** | ✅ Zero MFA prompts. AWS will no longer ask for authenticator app codes. |
+| "Stick to SAML" | SAML 2.0 application (`Jenkins-CI-CD`) active | ✅ Pure SAML 2.0 flow. Identity and attributes are still federated via AWS. |
+| "2nd time it should not ask login until expired" | User interactive sessions: **8 hours** | ✅ True SSO. The browser holds the session for 8 hours. Visiting Jenkins in a new tab/window logs in instantly without prompting for credentials. |
+| "Single Sign On" | Central AWS Identity Center session cookie | ✅ Seamless. You authenticate once at the start of your 8-hour shift and stay logged in. |
+
+---
+
+### 🧪 Test It Right Now:
+
+1. Open your regular browser window (or close all tabs and open a fresh regular window).
+2. Go to `http://13.232.168.185:8080/`.
+3. If not already logged in, enter your AWS password once (**Notice: No MFA code will be requested!**).
+4. You land on the **Jenkins Dashboard**.
+5. Open a new tab in the same browser and go to `http://13.232.168.18:8080/` → → **Instant login, zero prompts, zero MFA for the next 8 hours!**
